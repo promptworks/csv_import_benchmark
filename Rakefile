@@ -1,6 +1,7 @@
 require 'csv'
 require 'benchmark'
 require 'active_record'
+require 'parallel'
 
 module Utils
   extend self
