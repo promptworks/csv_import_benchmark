@@ -84,15 +84,13 @@ desc 'Run attempts'
 task :run, [:name] do |_, args|
   attempts = Dir.glob('attempts/*.rb')
                 .map { |file| File.basename(file, '.*') }
-                .select { |v| v == args[:name] }
+                .grep(args.fetch(:name, /.*/))
 
-  puts "==>> Setting up..."
-  attempts.each do |name|
-    DB.setup(name)
-  end
+  puts '==>> Setting up...'
+  attempts.each { |name| DB.setup(name) }
 
   puts "\n==>> Benchmarking..."
-  Benchmark.bm attempts.max.length + 1 do |x|
+  Benchmark.bm(attempts.max.length + 1) do |x|
     attempts.each do |name|
       x.report "#{name}:" do
         DB.connect(name)
