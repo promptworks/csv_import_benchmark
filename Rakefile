@@ -1,7 +1,9 @@
 require 'csv'
 require 'benchmark'
+require 'active_support/all'
 require 'active_record'
 require 'parallel'
+require 'activerecord-import'
 
 module Utils
   extend self
@@ -62,16 +64,10 @@ task :generate, [:count, :file] do |_, args|
   require 'csv'
   require 'securerandom'
 
-  args.with_defaults(
-    count: 100_000,
-    file: 'data.csv'
-  )
-
-  CSV.open(args[:file], 'wb') do |csv|
+  CSV.open(ENV.fetch('FILE', 'data.csv'), 'wb') do |csv|
     csv << ['id', 'one', 'two', 'three', 'four', 'five']
 
-    args[:count].to_i.times do |id|
-      # Generate 5 random values
+    ENV.fetch('COUNT', 100_000).to_i.times do |id|
       cols = Array.new(5).map do
         SecureRandom.hex(rand(5..20))
       end
@@ -82,10 +78,15 @@ task :generate, [:count, :file] do |_, args|
 end
 
 desc 'Run attempts'
-task :run, [:name] do |_, args|
-  attempts = Dir.glob('attempts/*.rb')
-                .map { |file| File.basename(file, '.*') }
-                .grep(args.fetch(:name, /.*/))
+task :run do
+  attempts = Dir.glob('attempts/*.rb').map do |file|
+    File.basename(file, '.*')
+  end
+
+  if filter = ENV['ATTEMPTS']
+    pattern = Regexp.union(filter.split(','))
+    attempts = attempts.grep(pattern)
+  end
 
   puts '==>> Setting up...'
   attempts.each { |name| DB.setup(name) }
