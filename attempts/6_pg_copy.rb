@@ -3,7 +3,7 @@ table   = Thing.table_name
 columns = enum.first.join(', ')
 sql     = "COPY #{table} (#{columns}) FROM STDIN"
 
-Parallel.each(enum.lazy.drop(1).each_slice(5000)) do |chunk|
+Parallel.each enum.lazy.drop(1).each_slice(5000) do |chunk|
   conn    = Thing.connection.raw_connection
   encoder = PG::TextEncoder::CopyRow.new
 

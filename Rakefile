@@ -65,7 +65,7 @@ task :generate, [:count, :file] do |_, args|
   require 'securerandom'
 
   CSV.open(ENV.fetch('FILE', 'data.csv'), 'wb') do |csv|
-    csv << ['id', 'one', 'two', 'three', 'four', 'five']
+    csv << %w(id one two three four five)
 
     ENV.fetch('COUNT', 100_000).to_i.times do |id|
       cols = Array.new(5).map do
@@ -79,14 +79,9 @@ end
 
 desc 'Run attempts'
 task :run do
-  attempts = Dir.glob('attempts/*.rb').map do |file|
-    File.basename(file, '.*')
-  end
-
-  if filter = ENV['ATTEMPTS']
-    pattern = Regexp.union(filter.split(','))
-    attempts = attempts.grep(pattern)
-  end
+  filter   = Regexp.new ENV.fetch('ATTEMPTS', '.*')
+  basename = ->(file) { File.basename(file, '.*') }
+  attempts = Dir.glob('attempts/*.rb').map(&basename).grep(filter)
 
   puts '==>> Setting up...'
   attempts.each { |name| DB.setup(name) }
