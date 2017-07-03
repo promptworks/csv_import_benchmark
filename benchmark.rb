@@ -1,5 +1,5 @@
 DATA_FILE  = 'data.csv'
-COUNT      = 100_000
+COUNT      = ENV.fetch('COUNT', 100_000).to_i
 BATCH_SIZE = 5000
 COLUMNS    = %w(one two three four five)
 VALUES     = %w(one two three four five)
@@ -9,7 +9,7 @@ require_relative 'setup'
 class Model < ActiveRecord::Base
 end
 
-Benchmark.bm do |x|
+Benchmark.bm 50 do |x|
   x.extend ReportFiltering
   x.extend ReportWithPadding
   x.extend DatabaseSetup
