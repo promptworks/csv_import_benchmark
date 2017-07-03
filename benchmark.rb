@@ -1,16 +1,8 @@
-require 'csv'
-require 'benchmark'
-require 'active_support/all'
-require 'active_record'
-require 'parallel'
-require 'activerecord-import'
-require 'bulk_insert'
-
 DATA_FILE  = 'data.csv'
-COLUMNS    = %w(one two three four five)
-VALUES     = %w(one two three four five)
 COUNT      = 100_000
 BATCH_SIZE = 5000
+COLUMNS    = %w(one two three four five)
+VALUES     = %w(one two three four five)
 
 require_relative 'setup'
 
@@ -22,19 +14,18 @@ Benchmark.bm do |x|
   x.extend ReportWithPadding
   x.extend DatabaseSetup
 
-  x.report '1 - CSV.read' do
-    CSV.read(DATA_FILE, headers: true) do |row|
-      Model.create!(row.to_h)
-    end
+  x.report '1. CSV.read' do
+    rows = CSV.read(DATA_FILE, headers: true)
+    rows.each { |row| Model.create!(row.to_h) }
   end
 
-  x.report '2 - CSV.foreach' do
+  x.report '2. CSV.foreach' do
     CSV.foreach(DATA_FILE, headers: true) do |row|
       Model.create!(row.to_h)
     end
   end
 
-  x.report '3 - Model.transaction' do
+  x.report '3. Model.transaction' do
     Model.transaction do
       CSV.foreach(DATA_FILE, headers: true) do |row|
         Model.create!(row.to_h)
@@ -42,68 +33,94 @@ Benchmark.bm do |x|
     end
   end
 
-  x.report '4 - Model.bulk_insert' do
-    csv  = CSV.foreach(DATA_FILE)
-    table = Model.table_name
+  x.report '4. Model.import' do
+    csv     = CSV.foreach(DATA_FILE, headers: true)
+    batches = csv.each_slice(BATCH_SIZE)
 
-    Model.bulk_insert(*csv.first) do |worker|
-      csv.lazy.drop(1).each do |row|
+    batches.each do |batch|
+      things = batch.map do |row|
+        Model.new(row.to_h)
+      end
+
+      Model.import(things)
+    end
+  end
+
+  x.report '5. Model.bulk_insert' do
+    csv     = CSV.foreach(DATA_FILE)
+    rows    = csv.lazy.drop(1)
+    columns = csv.first
+
+    Model.bulk_insert(*columns) do |worker|
+      rows.each do |row|
         worker.add(row)
       end
     end
   end
 
-  x.report '5 - Model.import' do
-    CSV.foreach(DATA_FILE, headers: true).each_slice(BATCH_SIZE) do |chunk|
-      things = chunk.map do |row|
-        Model.new(row.to_h)
-      end
+  x.report '6. PG::Connection#copy_data' do
+    csv     = CSV.foreach(DATA_FILE)
 
-      Model.import(things)
-    end
-  end
-
-  x.report '6 - Parallel.each -> Model.import' do
-    csv = CSV.foreach(DATA_FILE, headers: true)
-
-    Parallel.each csv.each_slice(BATCH_SIZE) do |chunk|
-      things = chunk.map do |row|
-        Model.new(row.to_h)
-      end
-
-      Model.import(things)
-    end
-  end
-
-  x.report '7 - Parallel.each -> PG::Connection#copy_data' do
-    csv    = CSV.foreach(DATA_FILE)
     table   = Model.table_name
     columns = csv.first.join(', ')
     sql     = "COPY #{table} (#{columns}) FROM STDIN"
 
-    Parallel.each csv.lazy.drop(1).each_slice(BATCH_SIZE) do |chunk|
+    conn    = Model.connection.raw_connection
+    encoder = PG::TextEncoder::CopyRow.new
+    rows    = csv.lazy.drop(1)
+
+    conn.copy_data sql, encoder do
+      rows.each do |row|
+        conn.put_copy_data(row)
+      end
+    end
+  end
+
+  x.report '7. Parallel.each -> Model.bulk_insert' do
+    csv     = CSV.foreach(DATA_FILE)
+    batches = csv.lazy.drop(1).each_slice(BATCH_SIZE)
+    columns = csv.first
+
+    Parallel.each batches do |batch|
+      Model.bulk_insert(*columns) do |worker|
+        batch.each do |row|
+          worker.add(row)
+        end
+      end
+    end
+  end
+
+  x.report '8. Parallel.each -> PG::Connection#copy_data' do
+    csv     = CSV.foreach(DATA_FILE)
+    table   = Model.table_name
+    columns = csv.first.join(', ')
+    sql     = "COPY #{table} (#{columns}) FROM STDIN"
+    batches = csv.lazy.drop(1).each_slice(BATCH_SIZE)
+
+    Parallel.each batches do |batch|
       conn    = Model.connection.raw_connection
       encoder = PG::TextEncoder::CopyRow.new
 
       conn.copy_data sql, encoder do
-        chunk.each do |row|
+        batch.each do |row|
           conn.put_copy_data(row)
         end
       end
     end
   end
 
-  x.report '8 - Parallel.each -> PG::Connection#copy_data (CSV)' do
+  x.report '9. Parallel.each -> PG::Connection#copy_data (CSV)' do
     csv     = File.foreach(DATA_FILE)
     table   = Model.table_name
     columns = CSV.parse_line(csv.first).join(', ')
     sql     = "COPY #{table} (#{columns}) FROM STDIN CSV"
+    batches = csv.lazy.drop(1).each_slice(BATCH_SIZE)
 
-    Parallel.each csv.lazy.drop(1).each_slice(BATCH_SIZE) do |chunk|
+    Parallel.each batches do |batch|
       conn = Model.connection.raw_connection
 
       conn.copy_data sql do
-        chunk.each do |row|
+        batch.each do |row|
           conn.put_copy_data(row)
         end
       end

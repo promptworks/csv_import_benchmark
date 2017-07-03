@@ -1,3 +1,11 @@
+require 'csv'
+require 'benchmark'
+require 'active_support/all'
+require 'active_record'
+require 'parallel'
+require 'activerecord-import'
+require 'bulk_insert'
+
 ActiveRecord::Migration.verbose = false
 
 CONNECT = lambda do
@@ -39,6 +47,6 @@ end
 
 module ReportWithPadding
   def report(msg, *args)
-    super(msg.ljust(80), *args)
+    super(msg.ljust(50), *args)
   end
 end
