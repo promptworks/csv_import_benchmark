@@ -23,8 +23,10 @@ end
 
 module ReportFiltering
   def report(msg, *args)
-    filter = ENV['FILTER']
-    return if filter && msg !~ /#{filter}/i
+    only, except = ENV.values_at('ONLY', 'EXCEPT')
+
+    return if except && msg =~ /#{except}/i
+    return if only && msg !~ /#{only}/i
     super(msg, *args)
   end
 end
