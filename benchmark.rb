@@ -1,6 +1,5 @@
 DATA_FILE  = 'data.csv'
 COUNT      = ENV.fetch('COUNT', 100_000).to_i
-BATCH_SIZE = 5000
 COLUMNS    = %w(one two three four five)
 VALUES     = %w(one two three four five)
 
@@ -35,7 +34,7 @@ Benchmark.bm 50 do |x|
 
   x.report '4. Model.import' do
     csv     = CSV.foreach(DATA_FILE, headers: true)
-    batches = csv.each_slice(BATCH_SIZE)
+    batches = csv.each_slice(5000)
 
     batches.each do |batch|
       things = batch.map do |row|
@@ -76,53 +75,19 @@ Benchmark.bm 50 do |x|
     end
   end
 
-  x.report '7. Parallel.each -> Model.bulk_insert' do
-    csv     = CSV.foreach(DATA_FILE)
-    batches = csv.lazy.drop(1).each_slice(BATCH_SIZE)
-    columns = csv.first
-
-    Parallel.each batches do |batch|
-      Model.bulk_insert(*columns) do |worker|
-        batch.each do |row|
-          worker.add(row)
-        end
-      end
-    end
-  end
-
-  x.report '8. Parallel.each -> PG::Connection#copy_data' do
-    csv     = CSV.foreach(DATA_FILE)
-    table   = Model.table_name
-    columns = csv.first.join(', ')
-    sql     = "COPY #{table} (#{columns}) FROM STDIN"
-    batches = csv.lazy.drop(1).each_slice(BATCH_SIZE)
-
-    Parallel.each batches do |batch|
-      conn    = Model.connection.raw_connection
-      encoder = PG::TextEncoder::CopyRow.new
-
-      conn.copy_data sql, encoder do
-        batch.each do |row|
-          conn.put_copy_data(row)
-        end
-      end
-    end
-  end
-
-  x.report '9. Parallel.each -> PG::Connection#copy_data (CSV)' do
+  x.report '7. PG::Connection#copy_data (CSV)' do
     csv     = File.foreach(DATA_FILE)
+
     table   = Model.table_name
     columns = CSV.parse_line(csv.first).join(', ')
     sql     = "COPY #{table} (#{columns}) FROM STDIN CSV"
-    batches = csv.lazy.drop(1).each_slice(BATCH_SIZE)
 
-    Parallel.each batches do |batch|
-      conn = Model.connection.raw_connection
+    conn    = Model.connection.raw_connection
+    rows    = csv.lazy.drop(1)
 
-      conn.copy_data sql do
-        batch.each do |row|
-          conn.put_copy_data(row)
-        end
+    conn.copy_data sql do
+      rows.each do |row|
+        conn.put_copy_data(row)
       end
     end
   end
